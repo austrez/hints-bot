@@ -1,85 +1,81 @@
 # -*- coding: utf-8 -*-
 from time import sleep
+
 import json
-import api
+import pathlib
+import random
+
+import api.telegram_api.helpers as telegram
+import api.weather_api.helpers as weather
+import api.opensky_api.helpers as opensky
+import api.travelpayouts_api.helpers as travelpayouts
+
 import consts
 
 
-def get_last_update(data):
-    result = data['result']
-    index = len(result) - 1
-
-    return result[index]
+CURRENT_DIR = str(pathlib.Path(__file__).parent.resolve())
 
 
-def get_chat_id(update):
-    chatId = update['message']['chat']['id']
+def load_free_hints():
+    free_hints = None
+    full_path = CURRENT_DIR + '\\data\\free_hints.json'
 
-    return chatId
+    with open(full_path, 'r', encoding='utf-8') as f:
+        free_hints = json.load(f)
+        f.close()
 
-
-def get_message_text(update):
-    return update['message']['text']
-
-
-# def init_commands():
-#     commands = [
-#         {
-#             'command': 'useful_hint',
-#             'description': 'get useful hint'
-#         }, {
-#             'command': 'bad_hint',
-#             'description': 'get bad hint'
-#         },
-#     ]
-#     api.set_my_commands(json.dumps(commands))
+    return free_hints
 
 
-def init_keyboard(update):
-    chatId = get_chat_id(update)
+def load_paid_hint():
+    api_name = random.choice(list(consts.api_names.keys()))
+    print(api_name)
+    hint = None
 
-    keyboard_buttons = [[
-        {
-            'text': consts.KEYBOARD_BUTTONS['useful_hint']
-        }, {
-            'text': consts.KEYBOARD_BUTTONS['bad_hint']
-        }
-    ]]
+    if (api_name == consts.api_names['weather_api']):
+        hint = weather.get_current_weather()
 
-    reply_markup = json.dumps({
-        'keyboard':  keyboard_buttons
-    })
+    elif (api_name == consts.api_names['opensky_api']):
+        hint = opensky.load_flights_history()
 
-    text = 'Choose, which hint you wanna get'
+    elif (api_name == consts.api_names['travelpayouts_api']):
+        hint = travelpayouts.get_trips_schedule()
 
-    response = api.send_message(chatId, text, reply_markup)
-    
-    return response.json()
+    return hint
 
 
 def main():
-    updates = api.get_updates()
-    last_update = get_last_update(updates)
+    updates = telegram.get_updates()
+    last_update = telegram.get_last_update(updates)
     last_update_id = last_update['update_id']
-    chat_id = get_chat_id(last_update)
+    chat_id = telegram.get_chat_id(last_update)
 
-    init_keyboard(last_update)
+    free_hints = load_free_hints()
+
+    telegram.init_keyboard(chat_id)
 
     while True:
-        updates = api.get_updates()
-        last_update = get_last_update(updates)
+        updates = telegram.get_updates()
+        last_update = telegram.get_last_update(updates)
         # print(json.dumps(last_update, indent=(2), ensure_ascii=False))
-        
-        if last_update_id == last_update['update_id']:
-            message_text = get_message_text(last_update)
-            
-            if (message_text == consts.KEYBOARD_BUTTONS['useful_hint']):
-                api.send_message(chat_id, 'USEFUL HINT')
-                
-            elif (message_text == consts.KEYBOARD_BUTTONS['bad_hint']):
-                api.send_message(chat_id, 'BAD HINT')
 
-            last_update_id += 1
+        if (last_update_id == last_update['update_id']):
+            message_text = telegram.get_message_text(last_update)
+
+            # If the user has chosen "paid hint" then
+            # we send data from one of the three APIs
+            if (message_text == telegram.KEYBOARD_BUTTONS['paid_hint']):
+                paid_hint = load_paid_hint()
+
+                telegram.send_message(chat_id, paid_hint)
+                last_update_id += 1
+
+            # If the user has chosen "free hint" then
+            # we send data from static json file
+            elif (message_text == telegram.KEYBOARD_BUTTONS['free_hint']):
+                random_hint = random.choice(free_hints)
+                telegram.send_message(chat_id, random_hint)
+                last_update_id += 1
 
         sleep(1)
 
